@@ -62,7 +62,8 @@ file "build/mruby/build_config.rb" => gems do
     "conf.gem '#{dir}/#{g}'"
   end
   f = f % { :rubygems => gems.join("\n"), :self => "conf.gem '#{dir}'" }
-  File.write("build/mruby/build_config.rb", f)
+
+  File.write("build/mruby/build_config.rb", f) unless File.exists? "build/mruby/build_config.rb" && File.read("build/mruby/build_config.rb") != f
 end
 
 file "build/mruby/build/host/lib/libmruby.a" => [ "build/mruby", "build/mruby/build_config.rb" ] do
@@ -79,8 +80,9 @@ task :default => [ "build/#{TARGET_BIN}" ]
 
 task :clean do
   sh "rm -rf build/#{TARGET_BIN}"
-  sh "rm -rf build/mruby/build_config.rb"
+  #sh "rm -rf build/mruby/build_config.rb"
   sh "rm -rf build/mruby/build/mrbgems/k8"
+  sh "rm -rf build/mruby/build/host/lib/libmruby.a"
 end
 
 task :clean_all do

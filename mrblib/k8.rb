@@ -1,5 +1,5 @@
 module K8
-	module Preprocessor
+	module Processor
 
 		# Set name=KEY labels on everything by default
 		class NameLabels
@@ -106,104 +106,160 @@ module K8
 				data
 			end
 		end
-	end
-end
 
-module K8
-	module Manifest
-		module Parser
-			def self.get target
-				if target =~ /(\.yml|\.yaml)$/
-					return Yaml.new target
-				else
-					raise "Unsupported manifest format"
-				end
+		class CatalogMerge
+			def initialize local_dir, default_repository, var_catalog
+				@dir = local_dir
+				@repository = default_repository.gsub(/\/+$/, '')
+				@var_catalog = var_catalog
 			end
 
-			class Yaml
-				def initialize data
-					@data = data
-					@vars = {}
-				end
+			def process data
+				if data['_catalog']
+					data['_catalog'].each do |service|
+						type = ::NilHash.wrap(data)[service]['type'].unwrap
+						type ||= service
 
-				def parse
-					YAML::load(@data)
-				end
+						candidates = self.candidates(
+							type,
+							(data['_repository'] || @repository)
+						)
 
-				def vars
-					return @vars if @vars.length > 0
-					begin
-						final = @data % @vars
-					rescue KeyError => e
-						key = e.message.gsub(/.*{(.*)}.*/, '\1')
-						@vars[key.to_sym] = "%{#{key}}"
-						retry
+						loader = loader_for(candidates)
+						raise ::K8::Exception::MissingCatalogManifest.new(type, candidates) if loader.nil?
+						ui.debug "Using #{loader.target} for #{type}"
+
+						loaded = loader.load
+						parser = ::K8::Manifest::Parser.get(loader.target)
+						catalog_def = parser.parse loaded
+
+						@var_catalog.add(loader.target, parser.vars(loaded))
+
+						data[service] = catalog_def.deep_merge(data[service] || {})
 					end
-					@vars
 				end
+				data
+			end
+
+			def candidates type, repository
+				[
+					File.expand_path("#{@dir}/catalog/#{type}.yml"),
+					"#{@repository}/#{type}.yml"
+				]
+			end
+
+			def loader_for candidates
+				candidates.each do |f|
+					loader = ::K8::Manifest::Loader.get(f)
+					return loader if loader.loadable?
+				end
+
+				return nil
 			end
 		end
 
-		module Loader
-			def self.get target
-				if target =~ /^https?:/
-					return HttpFile.new target
-				else
-					return File.new target
+		class PopulateVars
+			def process data
+				vars = spec_vars(data)
+				missing = []
+				data_as_string = YAML::dump(data)
+				
+				begin
+					data_as_string = data_as_string % vars
+				rescue KeyError => e
+					key = e.message.gsub(/.*{(.*)}.*/, '\1')
+					missing << key
+					vars[key.to_sym] = "%{#{key}}"
+					retry
 				end
+
+				raise ::K8::Exception::MissingVariables.new(missing) if missing.length > 0
+
+				YAML::load(data_as_string)
 			end
 
-			class File
-				def initialize file
-					@file = file
+			def spec_vars data
+				out = {}
+
+				## TODO pass this in to init and merge as generic source
+				ENV.keys.each do |k|
+					next unless k =~ /^K8_/
+					out[k.gsub(/^K8_/, '').to_sym] = ENV[k]
 				end
 
-				def load
-					File.read @file
+				return out unless data['_vars']
+
+				data.each do |k,v|
+					next unless k[0] == '_'
+					next if v.is_a? Hash or v.is_a? Array
+					out[k.gsub(/^_/, '').to_sym] = v
 				end
+
+				(data['_vars'] || {}).each do |k,v|
+					out[k.to_sym] = v
+				end
+
+				return out
+			end
+		end
+
+		class DebugState
+			def initialize label, level
+				@label = label
+				@level = level
 			end
 
-			class HttpFile
-				def initialize url
-					@url = url
-				end
-
-				def load
-					r = Http.get(@url)
-
-					if r.code != 200
-						ui.debug "Unable to fetch #{f}: #{r.code} #{r.body}"
-						return nil
-					end
-
-					r.body
-				end
+			def process data
+				ui.debug "\n#{@label.highlight}\n#{YAML::dump(data)}\n", @level
+				data
 			end
+		end
+	end
+end
+
+
+class VarCatalog
+	attr_reader :vars
+
+	def initialize vars = {}
+		@vars = vars
+	end
+
+	def add file, vars
+		vars.keys.each do |v|
+			@vars[v.to_s] ||= []
+			@vars[v.to_s] << file
 		end
 	end
 end
 
 class K8Cfg
-	attr_accessor :file, :raw, :parsed, :missing_vars, :preprocessors, :var_map
+	attr_accessor :file, :data, :processors, :var_catalog
 
 	def initialize file
-		self.file = file
-		self.var_map = {}
-		# TODO move out of here; process / preprocess is orthogonal to reading / fetching
-		self.raw = load_file(file)
-		self.parsed, self.missing_vars = populate_vars(raw, spec_vars(raw))
-		self.preprocessors = [
-			::K8::Preprocessor::ReverseProxyRoutes.new,
-			::K8::Preprocessor::ShorthandServices.new,
-			::K8::Preprocessor::ServiceAnnotations.new,
-			::K8::Preprocessor::NameLabels.new
+		self.file = File.expand_path(file)
+		self.var_catalog = VarCatalog.new
+		self.data = load_file(self.file, self.var_catalog)
+
+		self.processors = [
+			::K8::Processor::CatalogMerge.new(
+				File.dirname(file),
+				'https://s3-eu-west-1.amazonaws.com/inviqa-hobo/k8/',
+				self.var_catalog
+			),
+			::K8::Processor::DebugState.new("Merged data", 3),
+			::K8::Processor::PopulateVars.new,
+			::K8::Processor::ReverseProxyRoutes.new,
+			::K8::Processor::ShorthandServices.new,
+			::K8::Processor::ServiceAnnotations.new,
+			::K8::Processor::NameLabels.new,
+			::K8::Processor::DebugState.new("Final data", 4)
 		]
-		ui.debug "Variable map: #{self.var_map}", 2
 	end
 
 	def preprocess
-		preprocessors.each do |p|
-			self.parsed = p.process(self.parsed)
+		processors.each do |p|
+			self.data = p.process(self.data)
 		end
 	end
 
@@ -213,7 +269,7 @@ class K8Cfg
 		rcs = []
 
 		# Explicit services
-		parsed['_services'].each do |k, v|
+		self.data['_services'].each do |k, v|
 			services << ::K8::Service.new(
 				v['labels']['name'], # id
 				v['port'],           # port
@@ -221,9 +277,9 @@ class K8Cfg
 				v['labels'],         # labels
 				v['annotations']     # annotations
 			)
-		end if parsed['_services']
+		end if self.data['_services']
 
-		parsed.each do |k, v|
+		self.data.each do |k, v|
 			next if k[0] == '_'
 
 			containers = if v['containers']
@@ -276,105 +332,19 @@ class K8Cfg
 
 	private
 
-	def load_file file
-		raw = File.read file
-		parsed = YAML::load(raw)
+	def load_file file, var_catalog
+		raw = ::K8::Manifest::Loader.get(file).load
+		parser = ::K8::Manifest::Parser.get(file)
+		parsed = parser.parse raw
 
-		_, defined_vars = populate_vars(parsed, {})
-		defined_vars.each do |v|
-			self.var_map[v] ||= []
-			self.var_map[v] << file
-		end
+		var_catalog.add(file, parser.vars(raw))
 
 		if parsed['_inherit']
 			inherited = load_file(File.expand_path(File.dirname(file) + "/#{parsed['_inherit']}.yml"))
 			parsed = inherited.deep_merge(parsed)
 		end
 
-		if parsed['_catalog']
-			parsed['_catalog'].each do |service|
-				type = parsed[service] && parsed[service]['type'] ? parsed[service]['type'] : service
-
-				repository = parsed['_repository'] || "https://s3-eu-west-1.amazonaws.com/inviqa-hobo/k8"
-
-				manifest_file = find_or_fetch_catalog_type(File.dirname(file), repository, type)
-				raise "Missing catalog file: #{type}" if manifest_file.nil?
-				ui.debug "Using #{manifest_file} for #{type}"
-
-				catalog_def = load_file(manifest_file)
-				parsed[service] = catalog_def.deep_merge(parsed[service] || {})
-			end
-		end
-
 		parsed
-	end
-
-	def find_or_fetch_catalog_type local_dir, repository, type
-		opts = [
-			File.expand_path("#{local_dir}/catalog/#{type}.yml"),
-			File.expand_path("~/.k8/catalog/#{type}.yml"),
-			"#{repository.gsub(/\/+$/, '')}/#{type}.yml"
-		]
-
-		opts.each do |f|
-			if f =~ /^https?:/
-				ui.debug("Attempting to fetch #{f} for #{type}")
-				r = Http.get(f)
-
-				if r.code != 200
-					ui.debug "Unable to fetch #{f}: #{r.code} #{r.body}"
-					next
-				end
-
-				dir = File.expand_path("~/.k8/catalog")
-				file = "#{dir}/#{type}.yml"
-				FileUtils.mkdir_p(dir)
-				File.write(file, r.body)
-				return file
-			end
-
-			return f if File.exist? f
-		end
-
-		return nil
-	end
-
-	def populate_vars parsed, vars
-		missing = []
-		final = YAML::dump(parsed)
-		
-		begin
-			final = final % vars
-		rescue KeyError => e
-			key = e.message.gsub(/.*{(.*)}.*/, '\1')
-			missing << key
-			ui.warn "Missing a variable definition for #{key}"
-			vars[key.to_sym] = "%{#{key}}"
-			retry
-		end
-
-		[ YAML::load(final), missing ]
-	end
-
-	def spec_vars yaml
-		out = {}
-		ENV.keys.each do |k|
-			out[k.to_sym] = ENV[k]
-		end
-
-		return out unless yaml['_vars']
-
-		yaml.each do |k,v|
-			next unless k[0] == '_'
-			next if v.is_a? Hash or v.is_a? Array
-			out[k.gsub(/^_/, '').to_sym] = v
-		end
-
-		yaml['_vars'].each do |k,v|
-			out[k.to_sym] = v
-		end
-
-		return out
 	end
 end
 
@@ -499,21 +469,14 @@ def main
 
 				cfg = K8Cfg.new(file)
 
-				cfg.preprocess
-
-				ui.debug YAML::dump(cfg.parsed), 3
-
-				data = cfg.process
-
-				if cfg.missing_vars.length > 0
-					ui.error ""
-					ui.error "There are missing (required) variables:"
-					cfg.missing_vars.each do |v|
-						ui.error "  #{v} is required by #{cfg.var_map[v].join(', ')}"
-					end
-					ui.error "Please define them in the _vars key in #{file} before continuing"
+				begin
+					cfg.preprocess
+				rescue ::K8::Exception::MissingVariables => e
+					ui.error e.message_with_catalog(cfg.var_catalog)
 					exit 1
 				end
+
+				data = cfg.process
 
 				ui.service_list data[:services]
 				ui.pod_list data[:pods]
