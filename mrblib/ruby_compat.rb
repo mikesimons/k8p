@@ -1,21 +1,26 @@
+# Required by Rainbow gem
 RUBY_PLATFORM = "mruby"
 
+# All files loaded by default; stub
 def require name
   # NOP
 end
 
+# Ruby API parity; MEH
 class Object
 	def freeze
 		self
 	end
 end
 
+# Basic RbConfig stub for Rainbow
 class RbConfig
 	CONFIG = {
 		'host_os' => ''
 	}
 end
 
+# Minimal FileUtils support for mkdir_p
 module FileUtils
 	def self.mkdir_p dir
 		path = ""
@@ -30,6 +35,7 @@ module FileUtils
 	end
 end
 
+# Ease-of-use wrapper for mruby-simplehttp
 class Http
 	def self.get url, headers = {}
 		parsed = Uri::parse url
@@ -37,6 +43,7 @@ class Http
 	end
 end
 
+# Primitive URI alternative for parsing URIs
 class Uri
 	def self.parse url
 		m = url.match(/((?<scheme>[^:]+):\/\/)?(?<host>[^:\/]+)(?<port>:([0-9]+))?(?<path>[^\?#]+)?(\?(?<query>[^#]+))?(?<fragment>#.*)?/)
@@ -44,6 +51,7 @@ class Uri
 	end
 end
 
+# Simple "maybe" implementation for hash access
 class NilHash
 	def self.wrap v
 		NilHash.new v

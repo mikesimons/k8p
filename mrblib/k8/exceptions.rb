@@ -14,14 +14,14 @@ module K8
 			end
 		end
 
-		class MissingCatalogManifest < ::Exception
+		class MissingManifest < ::Exception
 			attr_reader :type, :candidates
 			def initialize type, candidates
 				@type = type
 				@candidates = candidates
 				
 				super(
-					"The '#{type}' catalog manifest could not be found among:\n" +
+					"The '#{type}' manifest could not be found among:\n" +
 					(@candidates.map { |c| "  #{c}"}.join(', '))
 				)
 			end

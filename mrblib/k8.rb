@@ -1,234 +1,15 @@
 module K8
-	module Processor
-
-		# Set name=KEY labels on everything by default
-		class NameLabels
-			def process data
-				data.each do |k, v|
-					next if k[0] == '_'
-					data[k] = apply_name_label(k, v)
-
-					if v['containers']
-						v['containers'].each do |ck, cv|
-							data[k]['containers'][ck] = apply_name_label(ck, cv)
-						end
-					end
-				end
-
-				(data['_services'] || {}).each do |k, v|
-					next if k[0] == '_'
-					data['_services'][k] = apply_name_label(k, v)
-				end
-
-				data
-			end
-
-			def apply_name_label k, v
-				v['labels'] ||= {}
-				return v if v['labels']['name']
-				v['labels']['name'] = k.gsub(/\./, '-')
-				v
-			end
+	module Command
+		class PrepareManifest
 		end
 
-		# Convert 'routes' entry in to a service w/ reverse-proxy-hosts annotations
-		class ReverseProxyRoutes
-			def process data
-				data.each do |k, v|
-					next if k[0] == '_'
-					next unless v['routes']
-					data.deep_merge({
-						k => {
-							'labels' => {
-								'route' => "#{k}-route-80"
-							}
-						},
-						'_services' => {
-							"#{k}-service" => {
-								'port' => 80,
-								'selector' => { 'route' => "#{k}-route-80" },
-								'annotations' => {
-									'reverse-proxy-hosts' => v['routes'],
-									'reverse-proxy-ports' => 80
-								}
-							}
-						}
-					})
-					v.delete 'routes'
-				end
-
-				data
-			end
+		class Start
 		end
 
-		# Convert shorthand services in to long form
-		class ShorthandServices
-			def process data
-				data.each do |k, v|
-					next if k[0] == '_'
-					next unless v['service']
-
-					data.deep_merge({
-						k => {
-							'labels' => {
-								'service' => "#{k}-service-#{v['service']}"
-							}
-						},
-						'_services' => {
-							"#{k}-service" => {
-								'port' => v['service'],
-								'selector' => { 'service' => "#{k}-service-#{v['service']}" }
-							}
-						}
-					})
-				end
-
-				data
-			end
+		class Stop
 		end
 
-		# Move any unknown attributes on services to annotations
-		class ServiceAnnotations
-			def process data
-				(data['_services'] || {}).each do |k, v|
-					annotate = v.clone
-					new_v = {}
-					['port', 'labels', 'selector', 'annotations'].each do |key|
-						annotate.delete key
-						new_v[key] = v[key] if v[key]
-					end
-
-					data['_services'][k] = v.deep_merge({
-						'annotations' => annotate
-					})
-				end
-
-				data
-			end
-		end
-
-		class CatalogMerge
-			def initialize local_dir, default_repository, var_catalog
-				@dir = local_dir
-				@repository = default_repository.gsub(/\/+$/, '')
-				@var_catalog = var_catalog
-			end
-
-			def process data
-				if data['_catalog']
-					data['_catalog'].each do |service|
-						type = ::NilHash.wrap(data)[service]['type'].unwrap
-						type ||= service
-
-						candidates = self.candidates(
-							type,
-							(data['_repository'] || @repository)
-						)
-
-						loader = loader_for(candidates)
-						raise ::K8::Exception::MissingCatalogManifest.new(type, candidates) if loader.nil?
-						ui.debug "Using #{loader.target} for #{type}"
-
-						loaded = loader.load
-						parser = ::K8::Manifest::Parser.get(loader.target)
-						catalog_def = parser.parse loaded
-
-						@var_catalog.add(loader.target, parser.vars(loaded))
-
-						data[service] = catalog_def.deep_merge(data[service] || {})
-					end
-				end
-				data
-			end
-
-			def candidates type, repository
-				[
-					File.expand_path("#{@dir}/catalog/#{type}.yml"),
-					"#{@repository}/#{type}.yml"
-				]
-			end
-
-			def loader_for candidates
-				candidates.each do |f|
-					loader = ::K8::Manifest::Loader.get(f)
-					return loader if loader.loadable?
-				end
-
-				return nil
-			end
-		end
-
-		class PopulateVars
-			def process data
-				vars = spec_vars(data)
-				missing = []
-				data_as_string = YAML::dump(data)
-				
-				begin
-					data_as_string = data_as_string % vars
-				rescue KeyError => e
-					key = e.message.gsub(/.*{(.*)}.*/, '\1')
-					missing << key
-					vars[key.to_sym] = "%{#{key}}"
-					retry
-				end
-
-				raise ::K8::Exception::MissingVariables.new(missing) if missing.length > 0
-
-				YAML::load(data_as_string)
-			end
-
-			def spec_vars data
-				out = {}
-
-				## TODO pass this in to init and merge as generic source
-				ENV.keys.each do |k|
-					next unless k =~ /^K8_/
-					out[k.gsub(/^K8_/, '').to_sym] = ENV[k]
-				end
-
-				return out unless data['_vars']
-
-				data.each do |k,v|
-					next unless k[0] == '_'
-					next if v.is_a? Hash or v.is_a? Array
-					out[k.gsub(/^_/, '').to_sym] = v
-				end
-
-				(data['_vars'] || {}).each do |k,v|
-					out[k.to_sym] = v
-				end
-
-				return out
-			end
-		end
-
-		class DebugState
-			def initialize label, level
-				@label = label
-				@level = level
-			end
-
-			def process data
-				ui.debug "\n#{@label.highlight}\n#{YAML::dump(data)}\n", @level
-				data
-			end
-		end
-	end
-end
-
-
-class VarCatalog
-	attr_reader :vars
-
-	def initialize vars = {}
-		@vars = vars
-	end
-
-	def add file, vars
-		vars.keys.each do |v|
-			@vars[v.to_s] ||= []
-			@vars[v.to_s] << file
+		class Status
 		end
 	end
 end
@@ -237,23 +18,20 @@ class K8Cfg
 	attr_accessor :file, :data, :processors, :var_catalog
 
 	def initialize file
-		self.file = File.expand_path(file)
-		self.var_catalog = VarCatalog.new
-		self.data = load_file(self.file, self.var_catalog)
+		@file = File.expand_path(file)
+		@default_repository = 'https://s3-eu-west-1.amazonaws.com/inviqa-hobo/k8/'
+		@var_catalog = ::K8::Manifest::VarCatalog.new
 
-		self.processors = [
-			::K8::Processor::CatalogMerge.new(
-				File.dirname(file),
-				'https://s3-eu-west-1.amazonaws.com/inviqa-hobo/k8/',
-				self.var_catalog
-			),
-			::K8::Processor::DebugState.new("Merged data", 3),
-			::K8::Processor::PopulateVars.new,
-			::K8::Processor::ReverseProxyRoutes.new,
-			::K8::Processor::ShorthandServices.new,
-			::K8::Processor::ServiceAnnotations.new,
-			::K8::Processor::NameLabels.new,
-			::K8::Processor::DebugState.new("Final data", 4)
+		@processors = [
+			::K8::Manifest::Processor::LoadManifest.new(@file, @var_catalog),
+			::K8::Manifest::Processor::CatalogMerge.new(File.dirname(file), @default_repository, @var_catalog),
+			::K8::Manifest::Processor::DebugState.new("Merged data", 3),
+			::K8::Manifest::Processor::PopulateVars.new,
+			::K8::Manifest::Processor::ReverseProxyRoutes.new,
+			::K8::Manifest::Processor::ShorthandServices.new,
+			::K8::Manifest::Processor::ServiceAnnotations.new,
+			::K8::Manifest::Processor::NameLabels.new,
+			::K8::Manifest::Processor::DebugState.new("Final data", 4)
 		]
 	end
 
@@ -328,23 +106,6 @@ class K8Cfg
 			:replicationControllers => rcs,
 			:services => services
 		}
-	end
-
-	private
-
-	def load_file file, var_catalog
-		raw = ::K8::Manifest::Loader.get(file).load
-		parser = ::K8::Manifest::Parser.get(file)
-		parsed = parser.parse raw
-
-		var_catalog.add(file, parser.vars(raw))
-
-		if parsed['_inherit']
-			inherited = load_file(File.expand_path(File.dirname(file) + "/#{parsed['_inherit']}.yml"))
-			parsed = inherited.deep_merge(parsed)
-		end
-
-		parsed
 	end
 end
 
@@ -567,23 +328,3 @@ def main
 		end
 	end
 end
-#$logger = Logger.new STDERR
-#$logger.level = Logger::INFO
-#$logger.formatter = lambda { |l1, l2, l3, l4| "#{l1} => #{l4}\n"}
-#k8 = K8MiniCfgApp.new ARGV[1]
-#k8.run ARGV[0]
-
-
-# $ k8 apply
-# => Services: inviqa.com, mysql
-# => ReplicationControllers: inviqa.com (silverstripe), mysql
-# => Applying
-
-# $ k8 kill
-# => Services: inviqa.com, mysql
-# => ReplicationControllers: inviqa.com (silverstripe), mysql
-# => Killing...
-
-# $ k8 update --services=mysql
-# => Service: mysql
-# => 
