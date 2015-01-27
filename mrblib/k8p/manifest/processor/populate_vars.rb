@@ -1,4 +1,4 @@
-module K8
+module K8P
 	module Manifest
 		module Processor
 			class PopulateVars
@@ -16,7 +16,7 @@ module K8
 						retry
 					end
 
-					raise ::K8::Exception::MissingVariables.new(missing) if missing.length > 0
+					raise ::K8P::Exception::MissingVariables.new(missing) if missing.length > 0
 
 					YAML::load(data_as_string)
 				end
@@ -26,23 +26,12 @@ module K8
 
 					## TODO pass this in to init and merge as generic source
 					ENV.keys.each do |k|
-						next unless k =~ /^K8_/
-						out[k.gsub(/^K8_/, '').to_sym] = ENV[k]
+						next unless k =~ /^K8P_/
+						out[k.gsub(/^K8P_/, '').to_sym] = ENV[k]
 					end
 
-					return out unless data['_vars']
-
-					data.each do |k,v|
-						next unless k[0] == '_'
-						next if v.is_a? Hash or v.is_a? Array
-						out[k.gsub(/^_/, '').to_sym] = v
-					end
-
-					(data['_vars'] || {}).each do |k,v|
-						out[k.to_sym] = v
-					end
-
-					return out
+					return out unless data['metadata']
+					return data['metadata'].to_dotted_hash.deep_merge(out)
 				end
 			end
 		end

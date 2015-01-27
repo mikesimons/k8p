@@ -3,7 +3,7 @@
 require 'fileutils'
 
 MRUBY_VERSION = "1.1.0"
-TARGET_BIN = "k8"
+TARGET_BIN = "k8p"
 GEMS = {
   "deep_merge-1.0.1" => [],
   "rainbow-2.0.0" => [
@@ -40,7 +40,6 @@ end
         "
       )
       extra.each(&:call)
-      #sh "git init . && git add * && git commit -m 'init'"
     end
   end
 end
@@ -55,7 +54,7 @@ file "build/mruby" do
   end
 end
 
-file "build/mruby/build_config.rb" => gems do
+task "build_config" => gems do
   f = File.read("build_config.rb")
   dir = File.dirname(__FILE__)
   gems = gems.map do |g|
@@ -63,10 +62,11 @@ file "build/mruby/build_config.rb" => gems do
   end
   f = f % { :rubygems => gems.join("\n"), :self => "conf.gem '#{dir}'" }
 
-  File.write("build/mruby/build_config.rb", f) unless File.exists? "build/mruby/build_config.rb" && File.read("build/mruby/build_config.rb") != f
+  skip =  File.exist?("build/mruby/build_config.rb") && f == File.read("build/mruby/build_config.rb")
+  File.write("build/mruby/build_config.rb", f) unless skip
 end
 
-file "build/mruby/build/host/lib/libmruby.a" => [ "build/mruby", "build/mruby/build_config.rb" ] do
+file "build/mruby/build/host/lib/libmruby.a" => [ "build/mruby", "build_config" ] do
   Dir.chdir "build/mruby" do
     sh "make"
   end
@@ -81,7 +81,7 @@ task :default => [ "build/#{TARGET_BIN}" ]
 task :clean do
   sh "rm -rf build/#{TARGET_BIN}"
   #sh "rm -rf build/mruby/build_config.rb"
-  sh "rm -rf build/mruby/build/mrbgems/k8"
+  sh "rm -rf build/mruby/build/mrbgems/k8p"
   sh "rm -rf build/mruby/build/host/lib/libmruby.a"
 end
 

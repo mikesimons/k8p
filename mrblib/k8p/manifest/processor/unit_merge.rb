@@ -1,8 +1,8 @@
-module K8
+module K8P
 	module Manifest
 		module Processor
 			# FIXME a manifest loader should be has_a not an is_a
-			class CatalogMerge < LoadManifest
+			class UnitMerge < LoadManifest
 				def initialize local_dir, default_repository, var_catalog
 					@dir = local_dir
 					@repository = default_repository.gsub(/\/+$/, '')
@@ -10,19 +10,18 @@ module K8
 				end
 
 				def process data
-					if data['_catalog']
-						data['_catalog'].each do |service|
-							type = ::NilHash.wrap(data)[service]['type'].unwrap
-							type ||= service
+					if data['units']
+						data['units'].each do |unit_name, unit|
+							type = unit['type'] || unit_name
 
 							candidates = [
-								File.expand_path("#{@dir}/catalog/#{type}.yml"),
+								File.expand_path("#{@dir}/units/#{type}.yml"),
 								"#{data['_repository'] || @repository}/#{type}.yml"
 							]
 
-							catalog_def = load(type, candidates)
+							unit_definition = load(type, candidates)
 							
-							data[service] = catalog_def.deep_merge(data[service] || {})
+							data['units'][unit_name] = unit_definition.deep_merge(unit || {})
 						end
 					end
 					data

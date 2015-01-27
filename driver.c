@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
 
   c = mrbc_context_new(mrb);
 
-  mrbc_filename(mrb, c, "k8");
+  mrbc_filename(mrb, c, "k8p");
 
   p = mrb_parse_string(mrb, code, c);
   proc = mrb_generate_code(mrb, p);

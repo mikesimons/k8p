@@ -53,6 +53,7 @@ MRuby::Build.new do |conf|
   conf.gem :git => 'https://github.com/AndrewBelt/mruby-yaml.git'
 
   # HTTP support
+  conf.gem :git => 'https://github.com/iij/mruby-pack.git'
   conf.gem :git => 'https://github.com/iij/mruby-socket.git'
   conf.gem :git => 'https://github.com/matsumoto-r/mruby-simplehttp.git'
   conf.gem :git => 'https://github.com/luisbebop/mruby-polarssl'
@@ -65,12 +66,12 @@ MRuby::Build.new do |conf|
   conf.gem :git => "https://github.com/iij/mruby-mtest"
 
   # CLI opt parse / commands
-  conf.gem "/projects/work/mine/mruby-slop"
+  conf.gem :git => "https://github.com/mikesimons/mruby-slop"
 
   %{self}
   %{rubygems}
 
-  conf.gem :git => 'https://github.com/mattn/mruby-require.git'
+  #conf.gem :git => 'https://github.com/mattn/mruby-require.git'
 end
 
 # End of your build_config

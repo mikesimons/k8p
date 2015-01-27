@@ -1,4 +1,4 @@
-module K8
+module K8P
 	module Manifest
 		module Processor
 			class LoadManifest
@@ -16,15 +16,15 @@ module K8
 					loader = loader_for(type, candidates)
 
 					loaded = loader.load
-					parser = ::K8::Manifest::Parser.get(loader.target)
+					parser = ::K8P::Manifest::Parser.get(loader.target)
 					manifest = parser.parse loaded
 
 					@var_catalog.add(loader.target, parser.vars(loaded))
 
-					if manifest['_inherit']
+					if manifest['inherit']
 						# FIXME: Hardcoded local path assumption. Does this need to be more flexible?
 						# FIXME: What does this do with a remote manifest that inherits?
-						inherited = load(manifest['_inherit'], File.expand_path(File.dirname(@file) + "/#{manifest['_inherit']}.yml"))
+						inherited = load(manifest['inherit'], File.expand_path(File.dirname(@file) + "/#{manifest['inherit']}.yml"))
 						manifest = inherited.deep_merge(manifest)
 					end
 
@@ -33,14 +33,14 @@ module K8
 
 				def loader_for type, candidates
 					candidates.each do |f|
-						loader = ::K8::Manifest::Loader.get(f)
+						loader = ::K8P::Manifest::Loader.get(f)
 						if loader.loadable?
 							ui.debug "Using #{loader.target} for #{type}"
 							return loader
 						end
 					end
 
-					raise ::K8::Exception::MissingManifest.new(type, candidates)
+					raise ::K8P::Exception::MissingManifest.new(type, candidates)
 				end
 			end
 		end

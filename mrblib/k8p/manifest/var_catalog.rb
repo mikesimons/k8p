@@ -1,4 +1,4 @@
-module K8
+module K8P
 	module Manifest
 		class VarCatalog
 			attr_reader :vars

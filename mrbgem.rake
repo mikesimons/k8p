@@ -1,4 +1,4 @@
-MRuby::Gem::Specification.new('k8') do |spec|
+MRuby::Gem::Specification.new('k8p') do |spec|
   spec.license = 'LICENSE'
   spec.authors = [ 'AUTHOR' ]
   spec.rbfiles = Dir.glob("#{dir}/mrblib/**/*.rb")

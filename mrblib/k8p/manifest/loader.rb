@@ -1,4 +1,4 @@
-module K8
+module K8P
 	module Manifest
 		module Loader
 			def self.get target

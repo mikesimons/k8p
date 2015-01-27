@@ -1,4 +1,4 @@
-module K8
+module K8P
 	module Exception
 		class MissingVariables < ::Exception
 			attr_accessor :vars
@@ -31,7 +31,7 @@ module K8
 			attr_reader :target
 			def initialize target
 				@target = target
-				super("K8 does not know how to parse '#{target}'")
+				super("K8P does not know how to parse '#{target}'")
 			end
 		end
 	end

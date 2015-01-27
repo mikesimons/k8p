@@ -20,6 +20,12 @@ class RbConfig
 	}
 end
 
+class File
+	def self.basename f, p = nil
+		f.split('/').last
+	end
+end
+
 # Minimal FileUtils support for mkdir_p
 module FileUtils
 	def self.mkdir_p dir
