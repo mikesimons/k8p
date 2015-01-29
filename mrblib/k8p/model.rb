@@ -74,12 +74,12 @@ module K8P
     end
   end
 
-  class Volume < Struct.new(:name, :type, :params)
+  class Volume < Struct.new(:name, :params)
     def source params
       if params.nil? or (params.is_a? String and params.empty?)
         { :emptyDir => {} }
       elsif params.is_a? String
-        params =~ /git:\/\// ? :git : { :hostDir => { :path => params } }
+        (params =~ /git:\/\//) ? :git : { :hostDir => { :path => params } }
       else
         raise "Unknown volume type!"
       end
