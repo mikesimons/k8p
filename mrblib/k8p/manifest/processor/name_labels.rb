@@ -16,7 +16,6 @@ module K8P
           end
 
           (data['services'] || {}).each do |k, v|
-            next if k[0] == '_'
             data['services'][k] = apply_name_label(k, v)
           end
 
