@@ -12,6 +12,8 @@ def main
 
     on :repository=, "Unit repository path / URL"
 
+    on :path=, "Project path"
+
     on :help do
       puts self
       exit 0
@@ -22,7 +24,7 @@ def main
       ui.debug("Opts: #{opts.to_hash}")
       ui.debug("Args: #{args}")
 
-      file = args[0] || 'k8.yml'
+      file = args[0] || 'k8p.yml'
       resolved_file = File.expand_path(file)
 
       unless File.exists? resolved_file and File.stat(resolved_file).readable?
@@ -32,6 +34,8 @@ def main
 
       cfg = K8P::Config.default(file)
       cfg.default_repository = opts[:repository] if opts[:repository]
+      ENV['K8P_PROJECT_PATH'] = opts[:path] if opts[:path]
+      ENV['K8P_PROJECT_PATH'] = Dir.pwd unless ENV['K8P_PROJECT_PATH']
 
       begin
         manifest = K8P::Manifest::Manifest.load cfg

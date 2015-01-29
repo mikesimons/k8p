@@ -27,7 +27,7 @@ module K8P
           ## TODO pass this in to init and merge as generic source
           ENV.keys.each do |k|
             next unless k =~ /^K8P_/
-            out[k.gsub(/^K8P_/, '').to_sym] = ENV[k]
+            out[k.gsub(/^K8P_/, '').downcase.to_sym] = ENV[k]
           end
 
           return out unless data['metadata']
